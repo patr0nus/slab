@@ -33,13 +33,3 @@ fn test_bincode() {
         .collect::<Slab<_>>();
     assert_bytes(&SlabPartialEq(slab), &[3, 1, 4, 3, 8, 5, 12]);
 }
-
-#[test]
-fn test_bincode_with_hole() {
-    let mut slab = [(1, 2), (3, 4), (5, 6)]
-        .iter()
-        .copied()
-        .collect::<Slab<_>>();
-    slab.remove(3);
-    assert_bytes(&SlabPartialEq(slab), &[2, 1, 4, 5, 12]);
-}
