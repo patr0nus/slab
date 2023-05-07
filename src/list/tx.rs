@@ -1,7 +1,7 @@
 use super::{ItemMut, List};
 use alloc::vec::Vec;
+use core::any::type_name;
 use core::fmt::Debug;
-use std::any::type_name;
 use std::collections::{
     hash_map::{Entry, VacantEntry},
     HashMap,
