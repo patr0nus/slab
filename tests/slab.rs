@@ -489,8 +489,8 @@ fn shrink_to_fit_doesnt_move() {
     slab.insert("foo");
     let bar = slab.insert("bar");
     slab.insert("baz");
-    let quux = slab.insert("quux");
-    slab.remove(quux);
+    let qux = slab.insert("qux");
+    slab.remove(qux);
     slab.remove(bar);
     slab.shrink_to_fit();
     assert_eq!(slab.len(), 2);

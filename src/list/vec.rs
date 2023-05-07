@@ -1,5 +1,5 @@
+use super::{AsSliceListStorage, ClearableListStorage, List, ListStorage, MutRefListStorage};
 use alloc::vec::Vec;
-use super::{AsSliceListStorage, ClearableListStorage, ListStorage, MutRefListStorage, List};
 
 #[derive(Debug)]
 pub enum VecStorage {}

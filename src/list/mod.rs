@@ -26,6 +26,7 @@ pub trait MutRefListStorage: ListStorage {
     ) -> &'_ mut T;
 }
 
+#[allow(clippy::len_without_is_empty)]
 pub trait List {
     type Item;
     type ItemMut<'a>: ItemMut<'a, Self::Item>
@@ -42,6 +43,6 @@ impl<'a, T> ItemMut<'a, T> for &'a mut T {
         **self = item;
     }
     fn get(&self) -> &T {
-        &*self
+        self
     }
 }

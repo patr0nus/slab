@@ -1,9 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![warn(
-    missing_debug_implementations,
-    rust_2018_idioms,
-    unreachable_pub
-)]
+#![warn(missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_variables))
@@ -135,11 +131,7 @@ use list::{
 /// [module documentation]: index.html
 pub struct Slab<T, L: ListStorage = VecStorage> {
     // Chunk of memory
-    #[cfg(not(slab_no_gat))]
     entries: L::List<Entry<T>>,
-
-    #[cfg(slab_no_gat)]
-    entries: Vec<Entry<T>>,
 
     // Number of Filled elements currently in the slab
     len: usize,
@@ -236,7 +228,7 @@ pub struct Drain<'a, T> {
     len: usize,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum Entry<T> {
     Vacant(usize),
     Occupied(T),
@@ -1150,10 +1142,7 @@ impl<T> Slab<T> {
     /// assert!(!slab.contains(hello));
     /// ```
     pub fn contains(&self, key: usize) -> bool {
-        match self.entries.get(key) {
-            Some(&Entry::Occupied(_)) => true,
-            _ => false,
-        }
+        matches!(self.entries.get(key), Some(&Entry::Occupied(_)))
     }
 
     /// Retain only the elements specified by the predicate.
