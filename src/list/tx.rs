@@ -1,4 +1,5 @@
 use super::{ItemMut, List};
+use alloc::vec::Vec;
 use core::fmt::Debug;
 use std::any::type_name;
 use std::collections::{
@@ -6,7 +7,6 @@ use std::collections::{
     HashMap,
 };
 use std::ops::Deref;
-use alloc::vec::Vec;
 
 #[derive(Debug)]
 pub struct TxItemMut<'a, T>(TxItemMutInner<'a, T>);
