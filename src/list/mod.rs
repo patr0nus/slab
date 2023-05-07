@@ -14,7 +14,7 @@ pub trait ListStorage {
 }
 
 #[cfg(slab_no_gat)]
-pub trait ListStorage { }
+pub trait ListStorage {}
 
 #[cfg(not(slab_no_gat))]
 pub trait ClearableListStorage: ListStorage {
@@ -22,7 +22,7 @@ pub trait ClearableListStorage: ListStorage {
 }
 
 #[cfg(slab_no_gat)]
-pub trait ClearableListStorage: ListStorage { }
+pub trait ClearableListStorage: ListStorage {}
 
 #[cfg(not(slab_no_gat))]
 pub trait AsSliceListStorage: ListStorage {
@@ -31,7 +31,7 @@ pub trait AsSliceListStorage: ListStorage {
 }
 
 #[cfg(slab_no_gat)]
-pub trait AsSliceListStorage: ListStorage { }
+pub trait AsSliceListStorage: ListStorage {}
 
 #[cfg(not(slab_no_gat))]
 pub trait MutRefListStorage: ListStorage {
@@ -41,7 +41,7 @@ pub trait MutRefListStorage: ListStorage {
 }
 
 #[cfg(slab_no_gat)]
-pub trait MutRefListStorage: ListStorage { }
+pub trait MutRefListStorage: ListStorage {}
 
 #[cfg(not(slab_no_gat))]
 pub trait List {

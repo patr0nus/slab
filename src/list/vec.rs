@@ -1,4 +1,4 @@
-use super::{ListStorage, ClearableListStorage, MutRefListStorage, AsSliceListStorage};
+use super::{AsSliceListStorage, ClearableListStorage, ListStorage, MutRefListStorage};
 
 #[cfg(not(slab_no_gat))]
 use super::{ItemMut, List};
