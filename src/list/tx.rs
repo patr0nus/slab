@@ -6,6 +6,7 @@ use std::collections::{
     HashMap,
 };
 use std::ops::Deref;
+use alloc::vec::Vec;
 
 #[derive(Debug)]
 pub struct TxItemMut<'a, T>(TxItemMutInner<'a, T>);
@@ -18,7 +19,7 @@ enum TxItemMutInner<'a, T> {
 
 impl<'a, T> ItemMut<'a, T> for TxItemMut<'a, T> {
     fn set(&mut self, item: T) {
-        ::take_mut::take(&mut self.0, |kind| match kind {
+        ::replace_with::replace_with_or_abort(&mut self.0, |kind| match kind {
             TxItemMutInner::Original(_, vacant) => {
                 TxItemMutInner::ReplacedOrPushed(vacant.insert(item))
             }
