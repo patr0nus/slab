@@ -31,7 +31,7 @@ jobs:
       matrix:
         rust:
           # This is the minimum supported Rust version of this crate.
-          - 1.31.0
+          - 1.65.0
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -44,7 +44,7 @@ jobs:
       matrix:
         rust:
           # This is the minimum supported Rust version for "no_std"
-          - 1.36.0
+          - 1.65.0
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
