@@ -119,20 +119,21 @@ extern crate std as alloc;
 mod serde;
 
 mod builder;
+pub mod list;
 
 use alloc::vec::{self, Vec};
 use core::iter::{self, FromIterator, FusedIterator};
 use core::{fmt, mem, ops, slice};
+use list::{List, VecStorage, ListStorage, ItemMut, AsSliceListStorage, ClearableListStorage, MutRefListStorage};
 
 /// Pre-allocated storage for a uniform data type
 ///
 /// See the [module documentation] for more details.
 ///
 /// [module documentation]: index.html
-#[derive(Clone)]
-pub struct Slab<T> {
+pub struct Slab<T, L: ListStorage = VecStorage> {
     // Chunk of memory
-    entries: Vec<Entry<T>>,
+    entries: L::List<Entry<T>>,
 
     // Number of Filled elements currently in the slab
     len: usize,
@@ -142,9 +143,23 @@ pub struct Slab<T> {
     next: usize,
 }
 
-impl<T> Default for Slab<T> {
+impl<T, L: ListStorage> Clone for Slab<T, L> where L::List<Entry<T>>: Clone {
+    fn clone(&self) -> Self {
+        Self {
+            entries: self.entries.clone(),
+            len: self.len,
+            next: self.next,
+        }
+    }
+}
+
+impl<T, L: ListStorage> Default for Slab<T, L> where L::List<Entry<T>>: Default {
     fn default() -> Self {
-        Slab::new()
+        Self {
+            entries: Default::default(),
+            len: 0,
+            next: 0,
+        }
     }
 }
 
@@ -213,6 +228,423 @@ pub struct Drain<'a, T> {
 enum Entry<T> {
     Vacant(usize),
     Occupied(T),
+}
+
+impl<T, L: ListStorage> Slab<T, L> {
+
+    /// Clear the slab of all values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    ///
+    /// for i in 0..3 {
+    ///     slab.insert(i);
+    /// }
+    ///
+    /// slab.clear();
+    /// assert!(slab.is_empty());
+    /// ```
+    pub fn clear(&mut self) where L: ClearableListStorage {
+        L::clear(&mut self.entries);
+        self.len = 0;
+        self.next = 0;
+    }
+
+    /// Return the number of stored values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    ///
+    /// for i in 0..3 {
+    ///     slab.insert(i);
+    /// }
+    ///
+    /// assert_eq!(3, slab.len());
+    /// ```
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Return `true` if there are no values stored in the slab.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    /// assert!(slab.is_empty());
+    ///
+    /// slab.insert(1);
+    /// assert!(!slab.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+
+    /// Return a reference to the value associated with the given key.
+    ///
+    /// If the given key is not associated with a value, then `None` is
+    /// returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    /// let key = slab.insert("hello");
+    ///
+    /// assert_eq!(slab.get(key), Some(&"hello"));
+    /// assert_eq!(slab.get(123), None);
+    /// ```
+    pub fn get(&self, key: usize) -> Option<&T> {
+        match self.entries.get(key) {
+            Some(Entry::Occupied(val)) => Some(val),
+            _ => None,
+        }
+    }
+
+
+    /// Return a mutable reference to the value associated with the given key.
+    ///
+    /// If the given key is not associated with a value, then `None` is
+    /// returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    /// let key = slab.insert("hello");
+    ///
+    /// *slab.get_mut(key).unwrap() = "world";
+    ///
+    /// assert_eq!(slab[key], "world");
+    /// assert_eq!(slab.get_mut(123), None);
+    /// ```
+    pub fn get_mut(&mut self, key: usize) -> Option<&mut T> where L: MutRefListStorage {
+        let item_mut = self.entries.get_mut(key)?;
+        match L::into_mut_ref(item_mut) {
+            Entry::Occupied(ref mut val) => Some(val),
+            _ => None,
+        }
+    }
+
+    /// Return two mutable references to the values associated with the two
+    /// given keys simultaneously.
+    ///
+    /// If any one of the given keys is not associated with a value, then `None`
+    /// is returned.
+    ///
+    /// This function can be used to get two mutable references out of one slab,
+    /// so that you can manipulate both of them at the same time, eg. swap them.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `key1` and `key2` are the same.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// use std::mem;
+    ///
+    /// let mut slab = Slab::new();
+    /// let key1 = slab.insert(1);
+    /// let key2 = slab.insert(2);
+    /// let (value1, value2) = slab.get2_mut(key1, key2).unwrap();
+    /// mem::swap(value1, value2);
+    /// assert_eq!(slab[key1], 2);
+    /// assert_eq!(slab[key2], 1);
+    /// ```
+    pub fn get2_mut(&mut self, key1: usize, key2: usize) -> Option<(&mut T, &mut T)> where L: AsSliceListStorage {
+        assert!(key1 != key2);
+
+        let (entry1, entry2);
+
+        if key1 > key2 {
+            let (slice1, slice2) = L::as_mut_slice(&mut self.entries).split_at_mut(key1);
+            entry1 = slice2.get_mut(0);
+            entry2 = slice1.get_mut(key2);
+        } else {
+            let (slice1, slice2) = L::as_mut_slice(&mut self.entries).split_at_mut(key2);
+            entry1 = slice1.get_mut(key1);
+            entry2 = slice2.get_mut(0);
+        }
+
+        match (entry1, entry2) {
+            (
+                Some(&mut Entry::Occupied(ref mut val1)),
+                Some(&mut Entry::Occupied(ref mut val2)),
+            ) => Some((val1, val2)),
+            _ => None,
+        }
+    }
+
+    /// Return a reference to the value associated with the given key without
+    /// performing bounds checking.
+    ///
+    /// For a safe alternative see [`get`](Slab::get).
+    ///
+    /// This function should be used with care.
+    ///
+    /// # Safety
+    ///
+    /// The key must be within bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    /// let key = slab.insert(2);
+    ///
+    /// unsafe {
+    ///     assert_eq!(slab.get_unchecked(key), &2);
+    /// }
+    /// ```
+    pub unsafe fn get_unchecked(&self, key: usize) -> &T where L: AsSliceListStorage {
+        match L::as_slice(&self.entries).get_unchecked(key) {
+            Entry::Occupied(ref val) => val,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Return a mutable reference to the value associated with the given key
+    /// without performing bounds checking.
+    ///
+    /// For a safe alternative see [`get_mut`](Slab::get_mut).
+    ///
+    /// This function should be used with care.
+    ///
+    /// # Safety
+    ///
+    /// The key must be within bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    /// let key = slab.insert(2);
+    ///
+    /// unsafe {
+    ///     let val = slab.get_unchecked_mut(key);
+    ///     *val = 13;
+    /// }
+    ///
+    /// assert_eq!(slab[key], 13);
+    /// ```
+    pub unsafe fn get_unchecked_mut(&mut self, key: usize) -> &mut T where L: AsSliceListStorage {
+        match *L::as_mut_slice(&mut self.entries).get_unchecked_mut(key) {
+            Entry::Occupied(ref mut val) => val,
+            _ => unreachable!(),
+        }
+    }
+
+
+    /// Return two mutable references to the values associated with the two
+    /// given keys simultaneously without performing bounds checking and safety
+    /// condition checking.
+    ///
+    /// For a safe alternative see [`get2_mut`](Slab::get2_mut).
+    ///
+    /// This function should be used with care.
+    ///
+    /// # Safety
+    ///
+    /// - Both keys must be within bounds.
+    /// - The condition `key1 != key2` must hold.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// use std::mem;
+    ///
+    /// let mut slab = Slab::new();
+    /// let key1 = slab.insert(1);
+    /// let key2 = slab.insert(2);
+    /// let (value1, value2) = unsafe { slab.get2_unchecked_mut(key1, key2) };
+    /// mem::swap(value1, value2);
+    /// assert_eq!(slab[key1], 2);
+    /// assert_eq!(slab[key2], 1);
+    /// ```
+    pub unsafe fn get2_unchecked_mut(&mut self, key1: usize, key2: usize) -> (&mut T, &mut T) where L: AsSliceListStorage {
+        debug_assert_ne!(key1, key2);
+        let ptr = L::as_mut_slice(&mut self.entries).as_mut_ptr();
+        let ptr1 = ptr.add(key1);
+        let ptr2 = ptr.add(key2);
+        match (&mut *ptr1, &mut *ptr2) {
+            (&mut Entry::Occupied(ref mut val1), &mut Entry::Occupied(ref mut val2)) => {
+                (val1, val2)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+
+    /// Get the key for an element in the slab.
+    ///
+    /// The reference must point to an element owned by the slab.
+    /// Otherwise this function will panic.
+    /// This is a constant-time operation because the key can be calculated
+    /// from the reference with pointer arithmetic.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the reference does not point to an element
+    /// of the slab.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    ///
+    /// let mut slab = Slab::new();
+    /// let key = slab.insert(String::from("foo"));
+    /// let value = &slab[key];
+    /// assert_eq!(slab.key_of(value), key);
+    /// ```
+    ///
+    /// Values are not compared, so passing a reference to a different location
+    /// will result in a panic:
+    ///
+    /// ```should_panic
+    /// # use slab::*;
+    ///
+    /// let mut slab = Slab::new();
+    /// let key = slab.insert(0);
+    /// let bad = &0;
+    /// slab.key_of(bad); // this will panic
+    /// unreachable!();
+    /// ```
+    #[cfg_attr(not(slab_no_track_caller), track_caller)]
+    pub fn key_of(&self, present_element: &T) -> usize where L: AsSliceListStorage {
+        let element_ptr = present_element as *const T as usize;
+        let base_ptr = L::as_slice(&self.entries).as_ptr() as usize;
+        // Use wrapping subtraction in case the reference is bad
+        let byte_offset = element_ptr.wrapping_sub(base_ptr);
+        // The division rounds away any offset of T inside Entry
+        // The size of Entry<T> is never zero even if T is due to Vacant(usize)
+        let key = byte_offset / mem::size_of::<Entry<T>>();
+        // Prevent returning unspecified (but out of bounds) values
+        if key >= self.entries.len() {
+            panic!("The reference points to a value outside this slab");
+        }
+        // The reference cannot point to a vacant entry, because then it would not be valid
+        key
+    }
+
+    fn insert_at(&mut self, key: usize, val: T) {
+        self.len += 1;
+
+        if key == self.entries.len() {
+            self.entries.push(Entry::Occupied(val));
+            self.next = key + 1;
+        } else {
+            let mut entry = self.entries.get_mut(key).unwrap();
+            self.next = match entry.get() {
+                Entry::Vacant(next) => *next,
+                _ => unreachable!(),
+            };
+            entry.set(Entry::Occupied(val));
+        }
+    }
+
+
+    /// Insert a value in the slab, returning key assigned to the value.
+    ///
+    /// The returned key can later be used to retrieve or remove the value using indexed
+    /// lookup and `remove`. Additional capacity is allocated if needed. See
+    /// [Capacity and reallocation](index.html#capacity-and-reallocation).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new storage in the vector exceeds `isize::MAX` bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    /// let key = slab.insert("hello");
+    /// assert_eq!(slab[key], "hello");
+    /// ```
+    pub fn insert(&mut self, val: T) -> usize {
+        let key = self.next;
+        self.insert_at(key, val);
+        key
+    }
+
+
+    /// Returns the key of the next vacant entry.
+    ///
+    /// This function returns the key of the vacant entry which  will be used
+    /// for the next insertion. This is equivalent to
+    /// `slab.vacant_entry().key()`, but it doesn't require mutable access.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    /// assert_eq!(slab.vacant_key(), 0);
+    ///
+    /// slab.insert(0);
+    /// assert_eq!(slab.vacant_key(), 1);
+    ///
+    /// slab.insert(1);
+    /// slab.remove(0);
+    /// assert_eq!(slab.vacant_key(), 0);
+    /// ```
+    pub fn vacant_key(&self) -> usize {
+        self.next
+    }
+
+
+    /// Tries to remove the value associated with the given key,
+    /// returning the value if the key existed.
+    ///
+    /// The key is then released and may be associated with future stored
+    /// values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slab::*;
+    /// let mut slab = Slab::new();
+    ///
+    /// let hello = slab.insert("hello");
+    ///
+    /// assert_eq!(slab.try_remove(hello), Some("hello"));
+    /// assert!(!slab.contains(hello));
+    /// ```
+    pub fn try_remove(&mut self, key: usize) -> Option<T> where L: MutRefListStorage {
+        let entry = L::into_mut_ref(self.entries.get_mut(key)?);
+        // Swap the entry at the provided value
+        let prev = mem::replace(entry, Entry::Vacant(self.next));
+
+        match prev {
+            Entry::Occupied(val) => {
+                self.len -= 1;
+                self.next = key;
+                Some(val)
+            }
+            _ => {
+                // Woops, the entry is actually vacant, restore the state
+                *entry = prev;
+                None
+            }
+        }
+    }
+
 }
 
 impl<T> Slab<T> {
@@ -557,61 +989,6 @@ impl<T> Slab<T> {
         mem::forget(guard);
     }
 
-    /// Clear the slab of all values.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    ///
-    /// for i in 0..3 {
-    ///     slab.insert(i);
-    /// }
-    ///
-    /// slab.clear();
-    /// assert!(slab.is_empty());
-    /// ```
-    pub fn clear(&mut self) {
-        self.entries.clear();
-        self.len = 0;
-        self.next = 0;
-    }
-
-    /// Return the number of stored values.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    ///
-    /// for i in 0..3 {
-    ///     slab.insert(i);
-    /// }
-    ///
-    /// assert_eq!(3, slab.len());
-    /// ```
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Return `true` if there are no values stored in the slab.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    /// assert!(slab.is_empty());
-    ///
-    /// slab.insert(1);
-    /// assert!(!slab.is_empty());
-    /// ```
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
     /// Return an iterator over the slab.
     ///
     /// This function should generally be **avoided** as it is not efficient.
@@ -675,305 +1052,6 @@ impl<T> Slab<T> {
         }
     }
 
-    /// Return a reference to the value associated with the given key.
-    ///
-    /// If the given key is not associated with a value, then `None` is
-    /// returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    /// let key = slab.insert("hello");
-    ///
-    /// assert_eq!(slab.get(key), Some(&"hello"));
-    /// assert_eq!(slab.get(123), None);
-    /// ```
-    pub fn get(&self, key: usize) -> Option<&T> {
-        match self.entries.get(key) {
-            Some(Entry::Occupied(val)) => Some(val),
-            _ => None,
-        }
-    }
-
-    /// Return a mutable reference to the value associated with the given key.
-    ///
-    /// If the given key is not associated with a value, then `None` is
-    /// returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    /// let key = slab.insert("hello");
-    ///
-    /// *slab.get_mut(key).unwrap() = "world";
-    ///
-    /// assert_eq!(slab[key], "world");
-    /// assert_eq!(slab.get_mut(123), None);
-    /// ```
-    pub fn get_mut(&mut self, key: usize) -> Option<&mut T> {
-        match self.entries.get_mut(key) {
-            Some(&mut Entry::Occupied(ref mut val)) => Some(val),
-            _ => None,
-        }
-    }
-
-    /// Return two mutable references to the values associated with the two
-    /// given keys simultaneously.
-    ///
-    /// If any one of the given keys is not associated with a value, then `None`
-    /// is returned.
-    ///
-    /// This function can be used to get two mutable references out of one slab,
-    /// so that you can manipulate both of them at the same time, eg. swap them.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if `key1` and `key2` are the same.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// use std::mem;
-    ///
-    /// let mut slab = Slab::new();
-    /// let key1 = slab.insert(1);
-    /// let key2 = slab.insert(2);
-    /// let (value1, value2) = slab.get2_mut(key1, key2).unwrap();
-    /// mem::swap(value1, value2);
-    /// assert_eq!(slab[key1], 2);
-    /// assert_eq!(slab[key2], 1);
-    /// ```
-    pub fn get2_mut(&mut self, key1: usize, key2: usize) -> Option<(&mut T, &mut T)> {
-        assert!(key1 != key2);
-
-        let (entry1, entry2);
-
-        if key1 > key2 {
-            let (slice1, slice2) = self.entries.split_at_mut(key1);
-            entry1 = slice2.get_mut(0);
-            entry2 = slice1.get_mut(key2);
-        } else {
-            let (slice1, slice2) = self.entries.split_at_mut(key2);
-            entry1 = slice1.get_mut(key1);
-            entry2 = slice2.get_mut(0);
-        }
-
-        match (entry1, entry2) {
-            (
-                Some(&mut Entry::Occupied(ref mut val1)),
-                Some(&mut Entry::Occupied(ref mut val2)),
-            ) => Some((val1, val2)),
-            _ => None,
-        }
-    }
-
-    /// Return a reference to the value associated with the given key without
-    /// performing bounds checking.
-    ///
-    /// For a safe alternative see [`get`](Slab::get).
-    ///
-    /// This function should be used with care.
-    ///
-    /// # Safety
-    ///
-    /// The key must be within bounds.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    /// let key = slab.insert(2);
-    ///
-    /// unsafe {
-    ///     assert_eq!(slab.get_unchecked(key), &2);
-    /// }
-    /// ```
-    pub unsafe fn get_unchecked(&self, key: usize) -> &T {
-        match *self.entries.get_unchecked(key) {
-            Entry::Occupied(ref val) => val,
-            _ => unreachable!(),
-        }
-    }
-
-    /// Return a mutable reference to the value associated with the given key
-    /// without performing bounds checking.
-    ///
-    /// For a safe alternative see [`get_mut`](Slab::get_mut).
-    ///
-    /// This function should be used with care.
-    ///
-    /// # Safety
-    ///
-    /// The key must be within bounds.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    /// let key = slab.insert(2);
-    ///
-    /// unsafe {
-    ///     let val = slab.get_unchecked_mut(key);
-    ///     *val = 13;
-    /// }
-    ///
-    /// assert_eq!(slab[key], 13);
-    /// ```
-    pub unsafe fn get_unchecked_mut(&mut self, key: usize) -> &mut T {
-        match *self.entries.get_unchecked_mut(key) {
-            Entry::Occupied(ref mut val) => val,
-            _ => unreachable!(),
-        }
-    }
-
-    /// Return two mutable references to the values associated with the two
-    /// given keys simultaneously without performing bounds checking and safety
-    /// condition checking.
-    ///
-    /// For a safe alternative see [`get2_mut`](Slab::get2_mut).
-    ///
-    /// This function should be used with care.
-    ///
-    /// # Safety
-    ///
-    /// - Both keys must be within bounds.
-    /// - The condition `key1 != key2` must hold.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// use std::mem;
-    ///
-    /// let mut slab = Slab::new();
-    /// let key1 = slab.insert(1);
-    /// let key2 = slab.insert(2);
-    /// let (value1, value2) = unsafe { slab.get2_unchecked_mut(key1, key2) };
-    /// mem::swap(value1, value2);
-    /// assert_eq!(slab[key1], 2);
-    /// assert_eq!(slab[key2], 1);
-    /// ```
-    pub unsafe fn get2_unchecked_mut(&mut self, key1: usize, key2: usize) -> (&mut T, &mut T) {
-        debug_assert_ne!(key1, key2);
-        let ptr = self.entries.as_mut_ptr();
-        let ptr1 = ptr.add(key1);
-        let ptr2 = ptr.add(key2);
-        match (&mut *ptr1, &mut *ptr2) {
-            (&mut Entry::Occupied(ref mut val1), &mut Entry::Occupied(ref mut val2)) => {
-                (val1, val2)
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    /// Get the key for an element in the slab.
-    ///
-    /// The reference must point to an element owned by the slab.
-    /// Otherwise this function will panic.
-    /// This is a constant-time operation because the key can be calculated
-    /// from the reference with pointer arithmetic.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the reference does not point to an element
-    /// of the slab.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    ///
-    /// let mut slab = Slab::new();
-    /// let key = slab.insert(String::from("foo"));
-    /// let value = &slab[key];
-    /// assert_eq!(slab.key_of(value), key);
-    /// ```
-    ///
-    /// Values are not compared, so passing a reference to a different location
-    /// will result in a panic:
-    ///
-    /// ```should_panic
-    /// # use slab::*;
-    ///
-    /// let mut slab = Slab::new();
-    /// let key = slab.insert(0);
-    /// let bad = &0;
-    /// slab.key_of(bad); // this will panic
-    /// unreachable!();
-    /// ```
-    #[cfg_attr(not(slab_no_track_caller), track_caller)]
-    pub fn key_of(&self, present_element: &T) -> usize {
-        let element_ptr = present_element as *const T as usize;
-        let base_ptr = self.entries.as_ptr() as usize;
-        // Use wrapping subtraction in case the reference is bad
-        let byte_offset = element_ptr.wrapping_sub(base_ptr);
-        // The division rounds away any offset of T inside Entry
-        // The size of Entry<T> is never zero even if T is due to Vacant(usize)
-        let key = byte_offset / mem::size_of::<Entry<T>>();
-        // Prevent returning unspecified (but out of bounds) values
-        if key >= self.entries.len() {
-            panic!("The reference points to a value outside this slab");
-        }
-        // The reference cannot point to a vacant entry, because then it would not be valid
-        key
-    }
-
-    /// Insert a value in the slab, returning key assigned to the value.
-    ///
-    /// The returned key can later be used to retrieve or remove the value using indexed
-    /// lookup and `remove`. Additional capacity is allocated if needed. See
-    /// [Capacity and reallocation](index.html#capacity-and-reallocation).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the new storage in the vector exceeds `isize::MAX` bytes.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    /// let key = slab.insert("hello");
-    /// assert_eq!(slab[key], "hello");
-    /// ```
-    pub fn insert(&mut self, val: T) -> usize {
-        let key = self.next;
-
-        self.insert_at(key, val);
-
-        key
-    }
-
-    /// Returns the key of the next vacant entry.
-    ///
-    /// This function returns the key of the vacant entry which  will be used
-    /// for the next insertion. This is equivalent to
-    /// `slab.vacant_entry().key()`, but it doesn't require mutable access.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    /// assert_eq!(slab.vacant_key(), 0);
-    ///
-    /// slab.insert(0);
-    /// assert_eq!(slab.vacant_key(), 1);
-    ///
-    /// slab.insert(1);
-    /// slab.remove(0);
-    /// assert_eq!(slab.vacant_key(), 0);
-    /// ```
-    pub fn vacant_key(&self) -> usize {
-        self.next
-    }
 
     /// Return a handle to a vacant entry allowing for further manipulation.
     ///
@@ -1005,57 +1083,6 @@ impl<T> Slab<T> {
         }
     }
 
-    fn insert_at(&mut self, key: usize, val: T) {
-        self.len += 1;
-
-        if key == self.entries.len() {
-            self.entries.push(Entry::Occupied(val));
-            self.next = key + 1;
-        } else {
-            self.next = match self.entries.get(key) {
-                Some(&Entry::Vacant(next)) => next,
-                _ => unreachable!(),
-            };
-            self.entries[key] = Entry::Occupied(val);
-        }
-    }
-
-    /// Tries to remove the value associated with the given key,
-    /// returning the value if the key existed.
-    ///
-    /// The key is then released and may be associated with future stored
-    /// values.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use slab::*;
-    /// let mut slab = Slab::new();
-    ///
-    /// let hello = slab.insert("hello");
-    ///
-    /// assert_eq!(slab.try_remove(hello), Some("hello"));
-    /// assert!(!slab.contains(hello));
-    /// ```
-    pub fn try_remove(&mut self, key: usize) -> Option<T> {
-        if let Some(entry) = self.entries.get_mut(key) {
-            // Swap the entry at the provided value
-            let prev = mem::replace(entry, Entry::Vacant(self.next));
-
-            match prev {
-                Entry::Occupied(val) => {
-                    self.len -= 1;
-                    self.next = key;
-                    return val.into();
-                }
-                _ => {
-                    // Woops, the entry is actually vacant, restore the state
-                    *entry = prev;
-                }
-            }
-        }
-        None
-    }
 
     /// Remove and return the value associated with the given key.
     ///
@@ -1182,7 +1209,7 @@ impl<T> Slab<T> {
     }
 }
 
-impl<T> ops::Index<usize> for Slab<T> {
+impl<T, L: ListStorage> ops::Index<usize> for Slab<T, L> {
     type Output = T;
 
     #[cfg_attr(not(slab_no_track_caller), track_caller)]
@@ -1194,10 +1221,10 @@ impl<T> ops::Index<usize> for Slab<T> {
     }
 }
 
-impl<T> ops::IndexMut<usize> for Slab<T> {
+impl<T, L: MutRefListStorage> ops::IndexMut<usize> for Slab<T, L> {
     #[cfg_attr(not(slab_no_track_caller), track_caller)]
     fn index_mut(&mut self, key: usize) -> &mut T {
-        match self.entries.get_mut(key) {
+        match self.entries.get_mut(key).map(L::into_mut_ref) {
             Some(&mut Entry::Occupied(ref mut v)) => v,
             _ => panic!("invalid key"),
         }
