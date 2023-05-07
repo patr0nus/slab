@@ -116,6 +116,9 @@ mod serde;
 mod builder;
 pub mod list;
 
+#[cfg(feature = "tx")]
+pub mod tx;
+
 use alloc::vec::{self, Vec};
 use core::iter::{self, FromIterator, FusedIterator};
 use core::{fmt, mem, ops, slice};

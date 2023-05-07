@@ -1,4 +1,4 @@
-#[cfg(feature = "std")]
+#[cfg(feature = "tx")]
 pub mod tx;
 mod vec;
 

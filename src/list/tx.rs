@@ -2,11 +2,11 @@ use super::{ItemMut, List};
 use alloc::vec::Vec;
 use core::any::type_name;
 use core::fmt::Debug;
+use core::ops::Deref;
 use std::collections::{
     hash_map::{Entry, VacantEntry},
     HashMap,
 };
-use std::ops::Deref;
 
 #[derive(Debug)]
 pub struct TxItemMut<'a, T>(TxItemMutInner<'a, T>);

@@ -20,13 +20,14 @@ exclude = ["/.*"]
 [features]
 std = []
 default = ["std"]
+tx = ["std", "replace_with"]
 
 [build-dependencies]
 autocfg = "1"
 
 [dependencies]
 serde = { version = "1.0.95", optional = true, default-features = false, features = ["alloc"] }
-replace_with = "0.1.7"
+replace_with = { version = "0.1.7", optional = true }
 
 [dev-dependencies]
 rustversion = "1"
