@@ -6,7 +6,7 @@ pub trait ItemMut<'a, T> {
 }
 
 pub trait ListStorage {
-    type List<T>: List<Item=T>;
+    type List<T>: List<Item = T>;
 }
 
 pub trait ClearableListStorage: ListStorage {
@@ -19,13 +19,13 @@ pub trait AsSliceListStorage: ListStorage {
 }
 
 pub trait MutRefListStorage: ListStorage {
-    fn into_mut_ref<T>(item_mut: <<Self as ListStorage>::List<T> as List>::ItemMut<'_>) -> &'_ mut T;
+    fn into_mut_ref<T>(
+        item_mut: <<Self as ListStorage>::List<T> as List>::ItemMut<'_>,
+    ) -> &'_ mut T;
 }
 
 #[derive(Debug)]
-pub enum VecStorage {
-
-}
+pub enum VecStorage {}
 
 impl ListStorage for VecStorage {
     type List<T> = Vec<T>;
@@ -37,7 +37,9 @@ impl ClearableListStorage for VecStorage {
     }
 }
 impl MutRefListStorage for VecStorage {
-    fn into_mut_ref<T>(item_mut: <<Self as ListStorage>::List<T> as List>::ItemMut<'_>) -> &'_ mut T {
+    fn into_mut_ref<T>(
+        item_mut: <<Self as ListStorage>::List<T> as List>::ItemMut<'_>,
+    ) -> &'_ mut T {
         item_mut
     }
 }
@@ -53,7 +55,9 @@ impl AsSliceListStorage for VecStorage {
 
 pub trait List {
     type Item;
-    type ItemMut<'a>: ItemMut<'a, Self::Item> where Self: 'a;
+    type ItemMut<'a>: ItemMut<'a, Self::Item>
+    where
+        Self: 'a;
     fn len(&self) -> usize;
     fn push(&mut self, item: Self::Item);
     fn get(&self, key: usize) -> Option<&Self::Item>;

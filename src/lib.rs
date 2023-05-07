@@ -124,7 +124,10 @@ pub mod list;
 use alloc::vec::{self, Vec};
 use core::iter::{self, FromIterator, FusedIterator};
 use core::{fmt, mem, ops, slice};
-use list::{List, VecStorage, ListStorage, ItemMut, AsSliceListStorage, ClearableListStorage, MutRefListStorage};
+use list::{
+    AsSliceListStorage, ClearableListStorage, ItemMut, List, ListStorage, MutRefListStorage,
+    VecStorage,
+};
 
 /// Pre-allocated storage for a uniform data type
 ///
@@ -143,7 +146,10 @@ pub struct Slab<T, L: ListStorage = VecStorage> {
     next: usize,
 }
 
-impl<T, L: ListStorage> Clone for Slab<T, L> where L::List<Entry<T>>: Clone {
+impl<T, L: ListStorage> Clone for Slab<T, L>
+where
+    L::List<Entry<T>>: Clone,
+{
     fn clone(&self) -> Self {
         Self {
             entries: self.entries.clone(),
@@ -153,7 +159,10 @@ impl<T, L: ListStorage> Clone for Slab<T, L> where L::List<Entry<T>>: Clone {
     }
 }
 
-impl<T, L: ListStorage> Default for Slab<T, L> where L::List<Entry<T>>: Default {
+impl<T, L: ListStorage> Default for Slab<T, L>
+where
+    L::List<Entry<T>>: Default,
+{
     fn default() -> Self {
         Self {
             entries: Default::default(),
@@ -231,7 +240,6 @@ enum Entry<T> {
 }
 
 impl<T, L: ListStorage> Slab<T, L> {
-
     /// Clear the slab of all values.
     ///
     /// # Examples
@@ -247,7 +255,10 @@ impl<T, L: ListStorage> Slab<T, L> {
     /// slab.clear();
     /// assert!(slab.is_empty());
     /// ```
-    pub fn clear(&mut self) where L: ClearableListStorage {
+    pub fn clear(&mut self)
+    where
+        L: ClearableListStorage,
+    {
         L::clear(&mut self.entries);
         self.len = 0;
         self.next = 0;
@@ -287,7 +298,6 @@ impl<T, L: ListStorage> Slab<T, L> {
         self.len == 0
     }
 
-
     /// Return a reference to the value associated with the given key.
     ///
     /// If the given key is not associated with a value, then `None` is
@@ -310,7 +320,6 @@ impl<T, L: ListStorage> Slab<T, L> {
         }
     }
 
-
     /// Return a mutable reference to the value associated with the given key.
     ///
     /// If the given key is not associated with a value, then `None` is
@@ -328,7 +337,10 @@ impl<T, L: ListStorage> Slab<T, L> {
     /// assert_eq!(slab[key], "world");
     /// assert_eq!(slab.get_mut(123), None);
     /// ```
-    pub fn get_mut(&mut self, key: usize) -> Option<&mut T> where L: MutRefListStorage {
+    pub fn get_mut(&mut self, key: usize) -> Option<&mut T>
+    where
+        L: MutRefListStorage,
+    {
         let item_mut = self.entries.get_mut(key)?;
         match L::into_mut_ref(item_mut) {
             Entry::Occupied(ref mut val) => Some(val),
@@ -363,7 +375,10 @@ impl<T, L: ListStorage> Slab<T, L> {
     /// assert_eq!(slab[key1], 2);
     /// assert_eq!(slab[key2], 1);
     /// ```
-    pub fn get2_mut(&mut self, key1: usize, key2: usize) -> Option<(&mut T, &mut T)> where L: AsSliceListStorage {
+    pub fn get2_mut(&mut self, key1: usize, key2: usize) -> Option<(&mut T, &mut T)>
+    where
+        L: AsSliceListStorage,
+    {
         assert!(key1 != key2);
 
         let (entry1, entry2);
@@ -409,7 +424,10 @@ impl<T, L: ListStorage> Slab<T, L> {
     ///     assert_eq!(slab.get_unchecked(key), &2);
     /// }
     /// ```
-    pub unsafe fn get_unchecked(&self, key: usize) -> &T where L: AsSliceListStorage {
+    pub unsafe fn get_unchecked(&self, key: usize) -> &T
+    where
+        L: AsSliceListStorage,
+    {
         match L::as_slice(&self.entries).get_unchecked(key) {
             Entry::Occupied(ref val) => val,
             _ => unreachable!(),
@@ -441,13 +459,15 @@ impl<T, L: ListStorage> Slab<T, L> {
     ///
     /// assert_eq!(slab[key], 13);
     /// ```
-    pub unsafe fn get_unchecked_mut(&mut self, key: usize) -> &mut T where L: AsSliceListStorage {
+    pub unsafe fn get_unchecked_mut(&mut self, key: usize) -> &mut T
+    where
+        L: AsSliceListStorage,
+    {
         match *L::as_mut_slice(&mut self.entries).get_unchecked_mut(key) {
             Entry::Occupied(ref mut val) => val,
             _ => unreachable!(),
         }
     }
-
 
     /// Return two mutable references to the values associated with the two
     /// given keys simultaneously without performing bounds checking and safety
@@ -476,7 +496,10 @@ impl<T, L: ListStorage> Slab<T, L> {
     /// assert_eq!(slab[key1], 2);
     /// assert_eq!(slab[key2], 1);
     /// ```
-    pub unsafe fn get2_unchecked_mut(&mut self, key1: usize, key2: usize) -> (&mut T, &mut T) where L: AsSliceListStorage {
+    pub unsafe fn get2_unchecked_mut(&mut self, key1: usize, key2: usize) -> (&mut T, &mut T)
+    where
+        L: AsSliceListStorage,
+    {
         debug_assert_ne!(key1, key2);
         let ptr = L::as_mut_slice(&mut self.entries).as_mut_ptr();
         let ptr1 = ptr.add(key1);
@@ -488,7 +511,6 @@ impl<T, L: ListStorage> Slab<T, L> {
             _ => unreachable!(),
         }
     }
-
 
     /// Get the key for an element in the slab.
     ///
@@ -526,7 +548,10 @@ impl<T, L: ListStorage> Slab<T, L> {
     /// unreachable!();
     /// ```
     #[cfg_attr(not(slab_no_track_caller), track_caller)]
-    pub fn key_of(&self, present_element: &T) -> usize where L: AsSliceListStorage {
+    pub fn key_of(&self, present_element: &T) -> usize
+    where
+        L: AsSliceListStorage,
+    {
         let element_ptr = present_element as *const T as usize;
         let base_ptr = L::as_slice(&self.entries).as_ptr() as usize;
         // Use wrapping subtraction in case the reference is bad
@@ -558,7 +583,6 @@ impl<T, L: ListStorage> Slab<T, L> {
         }
     }
 
-
     /// Insert a value in the slab, returning key assigned to the value.
     ///
     /// The returned key can later be used to retrieve or remove the value using indexed
@@ -582,7 +606,6 @@ impl<T, L: ListStorage> Slab<T, L> {
         self.insert_at(key, val);
         key
     }
-
 
     /// Returns the key of the next vacant entry.
     ///
@@ -608,7 +631,6 @@ impl<T, L: ListStorage> Slab<T, L> {
         self.next
     }
 
-
     /// Tries to remove the value associated with the given key,
     /// returning the value if the key existed.
     ///
@@ -626,7 +648,10 @@ impl<T, L: ListStorage> Slab<T, L> {
     /// assert_eq!(slab.try_remove(hello), Some("hello"));
     /// assert!(!slab.contains(hello));
     /// ```
-    pub fn try_remove(&mut self, key: usize) -> Option<T> where L: MutRefListStorage {
+    pub fn try_remove(&mut self, key: usize) -> Option<T>
+    where
+        L: MutRefListStorage,
+    {
         let entry = L::into_mut_ref(self.entries.get_mut(key)?);
         // Swap the entry at the provided value
         let prev = mem::replace(entry, Entry::Vacant(self.next));
@@ -644,7 +669,6 @@ impl<T, L: ListStorage> Slab<T, L> {
             }
         }
     }
-
 }
 
 impl<T> Slab<T> {
@@ -1052,7 +1076,6 @@ impl<T> Slab<T> {
         }
     }
 
-
     /// Return a handle to a vacant entry allowing for further manipulation.
     ///
     /// This function is useful when creating values that must contain their
@@ -1082,7 +1105,6 @@ impl<T> Slab<T> {
             slab: self,
         }
     }
-
 
     /// Remove and return the value associated with the given key.
     ///
