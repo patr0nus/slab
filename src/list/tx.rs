@@ -7,7 +7,10 @@ use std::collections::{
 };
 use std::ops::Deref;
 
+#[derive(Debug)]
 pub struct TxItemMut<'a, T>(TxItemMutInner<'a, T>);
+
+#[derive(Debug)]
 enum TxItemMutInner<'a, T> {
     Original(&'a T, VacantEntry<'a, usize, T>),
     ReplacedOrPushed(&'a mut T),
@@ -27,8 +30,8 @@ impl<'a, T> ItemMut<'a, T> for TxItemMut<'a, T> {
     }
     fn get(&self) -> &T {
         match &self.0 {
-            TxItemMutInner::Original(base_item_mut, _) => *base_item_mut,
-            TxItemMutInner::ReplacedOrPushed(item) => *item,
+            TxItemMutInner::Original(base_item_mut, _) => base_item_mut,
+            TxItemMutInner::ReplacedOrPushed(item) => item,
         }
     }
 }
@@ -156,6 +159,7 @@ where
 mod tests {
     use super::*;
     use crate::list::tx::TxList;
+    use alloc::rc::Rc;
 
     fn to_vec<L: List>(list: &L) -> Vec<L::Item>
     where
@@ -172,25 +176,16 @@ mod tests {
         result
     }
 
-    #[derive(Copy, Clone)]
-    enum Action {
-        Push(u32),
-        Set { idx: usize, value: u32 },
-    }
-
-    fn test(initial_values: &[u32], actions: &[Action]) {
-        let base_vec = initial_values.to_vec();
-    }
-
     struct TextContext {
-        base_values: &'static [u32],
-        tx_list: TxList<Box<Vec<u32>>>,
+        base_values: Rc<Vec<u32>>,
+        tx_list: TxList<Rc<Vec<u32>>>,
     }
     impl TextContext {
         fn new(base_values: &'static [u32]) -> Self {
+            let base_values = Rc::new(base_values.to_vec());
             Self {
-                base_values,
-                tx_list: TxList::new(Box::new(base_values.to_vec())),
+                base_values: Rc::clone(&base_values),
+                tx_list: TxList::new(base_values),
             }
         }
         fn expect_values(&self, expected_values: &[u32]) {
