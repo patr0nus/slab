@@ -26,6 +26,7 @@ autocfg = "1"
 
 [dependencies]
 serde = { version = "1.0.95", optional = true, default-features = false, features = ["alloc"] }
+take_mut = "0.2.2"
 
 [dev-dependencies]
 rustversion = "1"
