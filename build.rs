@@ -21,4 +21,7 @@ fn main() {
     if !cfg.probe_rustc_version(1, 46) {
         println!("cargo:rustc-cfg=slab_no_track_caller");
     }
+    if !cfg.probe_rustc_version(1, 65) {
+        println!("cargo:rustc-cfg=slab_no_gat");
+    }
 }

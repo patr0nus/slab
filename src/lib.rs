@@ -136,7 +136,11 @@ use list::{
 /// [module documentation]: index.html
 pub struct Slab<T, L: ListStorage = VecStorage> {
     // Chunk of memory
+    #[cfg(not(slab_no_gat))]
     entries: L::List<Entry<T>>,
+
+    #[cfg(slab_no_gat)]
+    entries: Vec<Entry<T>>,
 
     // Number of Filled elements currently in the slab
     len: usize,
